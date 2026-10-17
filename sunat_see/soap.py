@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import io
+import time
 import zipfile
 from dataclasses import dataclass
 from xml.sax.saxutils import escape
@@ -69,25 +70,47 @@ class SoapClient:
     password: str
     timeout: int = 60
 
-    def _call(self, body: str) -> etree._Element:
+    def _call(self, body: str, reintentos: int = 2) -> etree._Element:
         envelope = _ENVELOPE.format(
             soapenv=SOAPENV, service=SERVICE, wsse=WSSE,
             username=escape(self.username), password=escape(self.password),
             body=body,
         )
-        resp = requests.post(
-            self.endpoint,
-            data=envelope.encode("utf-8"),
-            headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": ""},
-            timeout=self.timeout,
-        )
-        # SUNAT devuelve 500 con un Fault SOAP en el body ante errores de negocio.
-        try:
-            root = etree.fromstring(resp.content)
-        except etree.XMLSyntaxError as exc:
-            raise RespuestaInvalida(f"Respuesta no-XML de SUNAT (HTTP {resp.status_code})") from exc
-        _raise_if_fault(root)
-        return root
+        # SUNAT exige, además del WSSE en el body, autenticación HTTP Basic: su
+        # gateway (nginx) rechaza con 401 algunas operaciones sin ese header, y el
+        # 401 es además intermitente en beta.
+        basic = base64.b64encode(f"{self.username}:{self.password}".encode()).decode("ascii")
+        headers = {
+            "Content-Type": "text/xml; charset=utf-8",
+            "SOAPAction": "",
+            "Authorization": f"Basic {basic}",
+        }
+        intento = 0
+        while True:
+            resp = requests.post(
+                self.endpoint,
+                data=envelope.encode("utf-8"),
+                headers=headers,
+                timeout=self.timeout,
+            )
+            contenido = resp.content
+            # Un 401/HTML viene del gateway, no del servicio: la petición nunca se
+            # procesó, así que reintentar es seguro incluso para sendBill.
+            rechazo_gateway = (
+                resp.status_code == 401
+                or contenido.lstrip().lower().startswith((b"<html", b"<!doctype"))
+            )
+            if rechazo_gateway and intento < reintentos:
+                intento += 1
+                time.sleep(2 * intento)
+                continue
+            # SUNAT devuelve 500 con un Fault SOAP en el body ante errores de negocio.
+            try:
+                root = etree.fromstring(contenido)
+            except etree.XMLSyntaxError as exc:
+                raise RespuestaInvalida(f"Respuesta no-XML de SUNAT (HTTP {resp.status_code})") from exc
+            _raise_if_fault(root)
+            return root
 
     def send_bill(self, doc_name: str, signed_xml: bytes) -> bytes:
         """Envía un comprobante firmado (``sendBill``) y devuelve el ZIP del CDR.

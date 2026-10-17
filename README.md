@@ -14,7 +14,8 @@ comprobante — qué se vende, a quién, cómo se paga — y el SDK hace el rest
 pip install sunat-see
 ```
 
-> ⚠️ Versión alpha. Probada contra el ambiente **BETA** de SUNAT. Revisa el
+> **Advertencia:** versión alpha. Probada contra el ambiente **BETA** de SUNAT (ver
+> [checklist de verificación](#checklist-de-verificación)). Revisa el
 > [alcance](#alcance-y-roadmap) antes de usar en producción.
 
 ## Inicio rápido
@@ -140,6 +141,26 @@ nd = NotaDebito(
 )
 ```
 
+### Anulación (Comunicación de Baja)
+
+Las facturas y notas **ya aceptadas** se anulan con una Comunicación de Baja
+(dentro de los 7 días de la emisión). Es asíncrona, como el resumen diario:
+
+```python
+from sunat_see import ComunicacionBaja, Anulacion
+
+baja = ComunicacionBaja(
+    emisor=emisor,
+    anular=[Anulacion.de(factura, "ERROR EN DATOS DEL CLIENTE")],
+    fecha_referencia=factura.fecha_emision,
+)
+envio = client.enviar_baja(baja)                # → ticket
+estado = client.consultar_ticket(envio.ticket)  # CDR de la baja
+```
+
+Las boletas no van por aquí: se dan de baja en el resumen diario
+(`ResumenDiario(anular=[boleta])`).
+
 ### Ítems exonerados / inafectos / exportación
 
 ```python
@@ -192,15 +213,53 @@ El SDK es **sin estado**: tu aplicación asigna series y correlativos (de forma
 transaccional, para no duplicar) y conserva `xml_firmado` y `cdr_xml` de cada
 envío — es una obligación legal.
 
+## Checklist de verificación
+
+Última corrida: **2026-10-16**, contra el ambiente BETA de SUNAT
+(`e-beta.sunat.gob.pe`, usuario `MODDATOS`, certificado autofirmado).
+Cada caso se construyó con el SDK, se firmó y se envió; "aceptado" significa
+CDR de SUNAT con `ResponseCode = 0`.
+
+- [x] Factura al contado (2 ítems gravados) — `sendBill`, aceptada
+- [x] Factura al crédito (2 cuotas con vencimiento) — `sendBill`, aceptada
+- [x] Nota de crédito sobre factura (devolución por ítem) — `sendBill`, aceptada
+- [x] Boleta con DNI (envío individual, solo beta) — `sendBill`, aceptada
+- [x] Resumen diario (2 boletas, una a público general) — `sendSummary` → ticket → `getStatus`, aceptado
+- [x] Comunicación de Baja de una factura — `sendSummary`, aceptada (ticket emitido)
+- [x] Firma XAdES-BES verificable (`XMLVerifier`, offline)
+- [x] Suite de tests: estructura UBL, totales, validaciones, letras, baja (53/53, offline)
+
+Pendiente de verificar:
+
+- [ ] CDR de la Comunicación de Baja: el `getStatus` de beta devuelve un error
+      interno conocido de SUNAT (`Server.200`) para tickets de baja; el SDK lo
+      trata como "en proceso". En producción sí entrega el CDR.
+- [ ] Anulación de boletas vía resumen (estado 3 — el XML se genera y valida, pero no se envió)
+- [ ] Ítems exonerados/inafectos de punta a punta (solo verificado offline)
+- [ ] Nota de débito contra beta (solo verificada offline)
+- [ ] Moneda USD/EUR contra beta
+- [ ] Flujo de producción (certificado real + usuario SOL secundario)
+
+Notas del beta observadas en la práctica:
+
+- El gateway de SUNAT exige autenticación **HTTP Basic además del WSSE** del
+  body (sin ella responde 401, de forma intermitente en beta). El SDK envía
+  ambas y reintenta los rechazos del gateway (401/HTML) — es seguro incluso en
+  `sendBill`, porque un rechazo del gateway significa que la petición nunca
+  llegó al servicio.
+- Beta valida **solo estructura**: que acepte un comprobante no garantiza que
+  producción lo acepte (ahí también se valida consistencia y emisor).
+- No usar beta para pruebas de estrés (restricción de SUNAT).
+
 ## Alcance y roadmap
 
 Soportado: factura (01) contado/crédito, boleta (03), nota de crédito (07),
-nota de débito (08), resumen diario de boletas (RC), IGV 18 %, afectaciones
-onerosas (gravado/exonerado/inafecto/exportación), PEN/USD/EUR.
+nota de débito (08), resumen diario de boletas (RC), comunicación de baja (RA),
+IGV 18 %, afectaciones onerosas (gravado/exonerado/inafecto/exportación),
+PEN/USD/EUR.
 
 Aún no: operaciones gratuitas, detracciones, retenciones/percepciones,
-anticipos, descuentos globales, guías de remisión, comunicación de baja (RA),
-ISC/ICBPER.
+anticipos, descuentos globales, guías de remisión, ISC/ICBPER.
 
 ## Desarrollo
 
