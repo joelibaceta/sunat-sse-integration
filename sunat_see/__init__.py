@@ -16,6 +16,7 @@ XAdES-BES, envío al billService y lectura del CDR.
     )
     resultado = SunatClient.beta(ruc="20123456789").enviar(factura)
 """
+from .baja import Anulacion, ComunicacionBaja
 from .catalogs import (
     Afectacion,
     MotivoNotaCredito,
@@ -49,6 +50,8 @@ __all__ = [
     "NotaCredito",
     "NotaDebito",
     "ResumenDiario",
+    "ComunicacionBaja",
+    "Anulacion",
     # Bloques
     "Emisor",
     "Cliente",

@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .baja import ComunicacionBaja, build_baja_xml
 from .cdr import parse_cdr_zip
 from .documents import Boleta, Factura, NotaCredito, NotaDebito, _Comprobante
+from .exceptions import SoapFault
 from .signer import generate_self_signed_cert, load_pfx, sign_xml
 from .soap import SoapClient
 from .summary import ResumenDiario, build_resumen_xml
@@ -143,9 +145,28 @@ class SunatClient:
         ticket = self._soap.send_summary(nombre, signed)
         return ResumenEnviado(ticket=ticket, nombre=nombre, xml_firmado=signed)
 
+    def enviar_baja(self, baja: ComunicacionBaja) -> ResumenEnviado:
+        """Firma y envía una Comunicación de Baja (``sendSummary``); devuelve el ticket.
+
+        El CDR de la baja se recupera después con ``consultar_ticket()``.
+        """
+        xml = build_baja_xml(baja)
+        signed, _digest = sign_xml(xml, self._cert_pem, self._key_pem)
+        nombre = f"{baja.emisor.ruc}-{baja.full_id}"
+        ticket = self._soap.send_summary(nombre, signed)
+        return ResumenEnviado(ticket=ticket, nombre=nombre, xml_firmado=signed)
+
     def consultar_ticket(self, ticket: str) -> ResultadoTicket:
-        """Consulta el estado de un resumen (``getStatus``)."""
-        status, content = self._soap.get_status(ticket)
+        """Consulta el estado de un resumen o baja (``getStatus``)."""
+        try:
+            status, content = self._soap.get_status(ticket)
+        except SoapFault as exc:
+            # El beta responde a veces un error interno (Server.200) al consultar
+            # tickets de baja mientras los procesa; se trata como "en proceso".
+            if "Server.200" in exc.codigo:
+                return ResultadoTicket(en_proceso=True, aceptado=False, codigo=None,
+                                       descripcion=None, cdr_xml=None, cdr_zip=None)
+            raise
         if status == "98":
             return ResultadoTicket(en_proceso=True, aceptado=False, codigo=None,
                                    descripcion=None, cdr_xml=None, cdr_zip=None)
