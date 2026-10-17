@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sunat-see"
+version = "0.1.0"
+description = "SDK declarativo para facturación electrónica SUNAT (Perú): facturas, boletas y notas de crédito/débito con firma XAdES y envío al SEE."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Joel Ibaceta", email = "mail@joelibaceta.com" }]
+keywords = ["sunat", "facturacion", "cpe", "ubl", "peru", "factura", "boleta"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Accounting",
+]
+dependencies = [
+    "lxml>=4.9",
+    "signxml>=3.2",
+    "cryptography>=41",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/joelibaceta/sunat-see"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sunat_see"]
